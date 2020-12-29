@@ -1,0 +1,6 @@
+SELECT ?item WHERE {
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en". }
+  ?item wdt:P31 wd:Q55488;
+                   wdt:P5696 ?Indian_Railways_station_code.
+  MINUS { ?item wdt:P625 ?coord. }
+}
