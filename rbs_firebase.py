@@ -4,21 +4,16 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #
 
-import os
 import csv
+import os
+
 from progress.bar import Bar
-import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore
+
+import firebase_init
 
 script_dir = os.path.dirname(__file__)
-cred = credentials.Certificate(os.path.join(script_dir, 'rbs-stations-firebase.json'))
 
-firebase_admin.initialize_app(cred, {
-  'projectId': 'rbs-stations',
-})
-
-db = firestore.client()
+stations_ref = firebase_init.init()
 
 with open(os.path.join(script_dir, 'rbs-stations.csv'), newline='') as csvfile:
     csv_reader = csv.reader(csvfile, delimiter=';')
@@ -29,7 +24,7 @@ with open(os.path.join(script_dir, 'rbs-stations.csv'), newline='') as csvfile:
     bar = Bar('Importing RBS to Firebase', max=len(rows))
 
     for row in rows:
-        doc_ref = db.collection('stations').document()
+        doc_ref = stations_ref.document()
         insert = doc_ref.set({
             'code': row[1],
             'name': row[2],

@@ -4,66 +4,25 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #
 
-import pywikibot
 import os
-from os.path import expanduser
+
 import overpy
+import pywikibot
+from PyInquirer import prompt
+from colorama import init, deinit, Fore, Style
 from progress.bar import Bar
 from pywikibot import pagegenerators as pg
-from PyInquirer import prompt
-import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore
-from colorama import init, deinit, Fore, Style
+
+import firebase_init
+import ir_station_creator_questions as questions
 
 init(autoreset=True)
 
 script_dir = os.path.dirname(__file__)
-cred = credentials.Certificate(os.path.join(expanduser('~'), 'rbs-stations-firebase.json'))
 
-firebase_admin.initialize_app(cred, {
-    'projectId': 'rbs-stations',
-})
-
-db = firestore.client()
-stations_ref = db.collection('stations')
+stations_ref = firebase_init.init()
 
 site = pywikibot.Site("wikidata", "wikidata")
-
-questions_start = [
-    {
-        'type': 'confirm',
-        'name': 'start',
-        'message': 'Start a new lookup?',
-    },
-]
-
-questions_osm = [
-    {
-        'type': 'list',
-        'name': 'osm_type',
-        'message': 'What\'s the OSM type?',
-        'choices': [
-            'Node',
-            'Way',
-            'Relation',
-        ],
-        'filter': lambda val: val.lower(),
-    },
-    {
-        'type': 'input',
-        'name': 'osm_id',
-        'message': 'What\'s the OSM ID?',
-    }
-]
-
-questions_wikidata = [
-    {
-        'type': 'confirm',
-        'name': 'found',
-        'message': 'Is this what you are looking for?',
-    }
-]
 
 divisions_dict = dict()
 
@@ -197,21 +156,10 @@ def select_rbs_option(rbs_results: list):
     for i in range(0, len(rbs_results)):
         questions_rbs[0]['choices'].append(str(i))
 
-    # Out of range to escape creation
-    questions_rbs[0]['choices'].append(str(len(rbs_results)))
-
     print()
     answers_rbs = prompt(questions_rbs)
 
-    try:
-        return rbs_results[int(answers_rbs['option'])]
-    except:
-        print()
-        print(f"Invalid option - {Fore.RED}{answers_rbs['option']}")
-        print(answers_rbs)
-        print(rbs_results)
-
-        return False
+    return rbs_results[int(answers_rbs['option'])]
 
 
 def create_wikidata_item(name: str, code: str, lat: float, lon: float, division: pywikibot.ItemPage = None):
@@ -263,9 +211,15 @@ def create_wikidata_item(name: str, code: str, lat: float, lon: float, division:
 
 
 def application():
-    answers_osm = prompt(questions_osm)
+    answers_osm = prompt(questions.questions_osm)
     osm_type = answers_osm['osm_type']
     osm_id = answers_osm['osm_id']
+
+    if not osm_id.isdigit():
+        print()
+        print(f'{Fore.RED}{osm_id}{Style.RESET_ALL} is not a number')
+
+        return
 
     overpass = overpy.Overpass()
 
@@ -300,7 +254,7 @@ def application():
         if query_has_results:
             # Confirm if item is found in Wikidata
             print()
-            answers_wikidata = prompt(questions_wikidata)
+            answers_wikidata = prompt(questions.questions_wikidata)
 
             if answers_wikidata['found']:
                 return False
@@ -308,15 +262,17 @@ def application():
         # Query RBS Firebase for stations
         rbs_results = query_firebase(code, name)
 
+        print()
+        answers_wikidata_create = prompt(questions.questions_wikidata_create)
+
+        if not answers_wikidata_create['create']:
+            return False
+
         # RBS Firebase station doc dict to create Wikidata item
         dict_to_create = select_rbs_option(rbs_results)
 
         print()
         print(dict_to_create)
-
-        # ToDo Fix this
-        if False == dict_to_create:
-            return False
 
         # Set Division from RBS if exists
         if dict_to_create['division'] in divisions_dict:
@@ -333,6 +289,8 @@ def application():
     else:
         print(result.relations)
 
+    return True
+
 
 prepare_divisions_dict()
 
@@ -341,7 +299,7 @@ while True:
     application()
 
     print()
-    answers_start = prompt(questions_start)
+    answers_start = prompt(questions.questions_start)
 
     if not answers_start['start']:
         break
