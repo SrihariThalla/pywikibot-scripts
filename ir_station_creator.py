@@ -15,6 +15,7 @@ from pywikibot import pagegenerators as pg
 
 import firebase_init
 import ir_station_creator_questions as questions
+import sqs
 
 init(autoreset=True)
 
@@ -166,24 +167,8 @@ def create_wikidata_item(name: str, code: str, lat: float, lon: float, division:
     site = pywikibot.Site("wikidata", "wikidata")
     repo = site.data_repository()
 
-    instance_of = pywikibot.Claim(repo, 'P31')
-    instance_of.setTarget(pywikibot.ItemPage(repo, 'Q55488'))
-
-    country = pywikibot.Claim(repo, 'P17')
-    country.setTarget(pywikibot.ItemPage(repo, 'Q668'))
-
-    owned_by = pywikibot.Claim(repo, 'P127')
-    owned_by.setTarget(pywikibot.ItemPage(repo, 'Q819425'))
-
-    station_code = pywikibot.Claim(repo, 'P5696')
-    station_code.setTarget(code)
-
-    coordinateclaim = pywikibot.Claim(site.data_repository(), 'P625')
-    coordinate = pywikibot.Coordinate(lat, lon, precision=0.000001, site=site)
-    coordinateclaim.setTarget(coordinate)
-
     data = {
-        "labels": {"en": "%s railway station" % name, },
+        "labels": {"en": f'{name} railway station'},
         "descriptions": {"en": "railway station in India", },
     }
 
@@ -195,17 +180,61 @@ def create_wikidata_item(name: str, code: str, lat: float, lon: float, division:
 
     print(f'Station: "{name}" - Code: "{code}" - Wikidata: {Fore.GREEN}{station.getID()}')
 
-    station.addClaim(instance_of, summary='Add instance_of claim')
-    station.addClaim(country, summary='Add country claim')
-    station.addClaim(owned_by, summary='Add owned_by claim')
-    station.addClaim(station_code, summary='Add station code')
-    station.addClaim(coordinateclaim, summary='Add coordinate claim from OSM')
+    # instance_of
+    sqs.send_message(
+        id=station.getID(),
+        summary='Add instance_of claim',
+        type='item',
+        key='P31',
+        value='Q55488',
+    )
 
+    # country
+    sqs.send_message(
+        id=station.getID(),
+        summary='Add country claim',
+        type='item',
+        key='P17',
+        value='Q668',
+    )
+
+    # owned_by
+    sqs.send_message(
+        id=station.getID(),
+        summary='Add owned_by claim',
+        type='item',
+        key='P127',
+        value='Q819425',
+    )
+
+    # station code
+    sqs.send_message(
+        id=station.getID(),
+        summary='Add station code',
+        type='identifier',
+        key='P5696',
+        value=code,
+    )
+
+    # coordinate
+    sqs.send_message(
+        id=station.getID(),
+        summary='Add coordinate claim from OSM',
+        type='coordinate',
+        key='P625',
+        lat=lat,
+        lon=lon,
+    )
+
+    # operator
     if division is not None:
-        operator = pywikibot.Claim(repo, 'P137')
-        operator.setTarget(division)
-
-        station.addClaim(operator, summary='Add operator claim')
+        sqs.send_message(
+            id=station.getID(),
+            summary='Add operator claim',
+            type='item',
+            key='P137',
+            value=division.getID(),
+        )
 
     # ToDo Add admin territory claim
 
