@@ -1,5 +1,8 @@
-firebase-admin==4.5.1
-overpy==0.4
-progress==1.5
-message-queue==0.3.4
 boto3==1.17.7
+colorama==0.4.4
+overpy==0.4
+pika==0.12.0
+progress==1.5
+PyInquirer==1.0.3
+pywikibot==5.6.0
+firebase-admin==4.5.2
