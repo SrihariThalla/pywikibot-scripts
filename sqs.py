@@ -6,56 +6,80 @@
 
 import boto3
 import pywikibot
+from colorama import Fore, Style
 
-from colorama import init, deinit, Fore, Style
+import functions
 
 sqs = boto3.client('sqs')
 
-queue_url = 'https://sqs.eu-central-1.amazonaws.com/238713673548/wikidata-claims'
+queues = {
+    'wikidata_claims': 'https://sqs.eu-central-1.amazonaws.com/238713673548/wikidata-claims',
+    'overpass_workload': 'https://sqs.eu-central-1.amazonaws.com/238713673548/overpass_workload',
+}
 
 
-def send_message(id: str, summary: str, type: str, key: str, value: str = '-', lat: float = 0, lon: float = 0):
-    response = sqs.send_message(
-        QueueUrl=queue_url,
-        MessageAttributes={
-            'id': {
-                'DataType': 'String',
-                'StringValue': id,
+def send_message(id: str, type: str, key: str, summary: str = '-', value: str = '-', lat: float = 0, lon: float = 0,
+                 queue: str = 'wikidata'):
+    if functions.SQS_WIKIDATA == queue:
+        sqs.send_message(
+            QueueUrl=queues['wikidata_claims'],
+            MessageAttributes={
+                'id': {
+                    'DataType': 'String',
+                    'StringValue': id,
+                },
+                'summary': {
+                    'DataType': 'String',
+                    'StringValue': summary,
+                },
+                'type': {
+                    'DataType': 'String',
+                    'StringValue': type,
+                },
+                'key': {
+                    'DataType': 'String',
+                    'StringValue': key,
+                },
+                'value': {
+                    'DataType': 'String',
+                    'StringValue': value,
+                },
+                'lat': {
+                    'DataType': 'Number',
+                    'StringValue': str(lat),
+                },
+                'lon': {
+                    'DataType': 'Number',
+                    'StringValue': str(lon),
+                },
             },
-            'summary': {
-                'DataType': 'String',
-                'StringValue': summary,
-            },
-            'type': {
-                'DataType': 'String',
-                'StringValue': type,
-            },
-            'key': {
-                'DataType': 'String',
-                'StringValue': key,
-            },
-            'value': {
-                'DataType': 'String',
-                'StringValue': value,
-            },
-            'lat': {
-                'DataType': 'Number',
-                'StringValue': str(lat),
-            },
-            'lon': {
-                'DataType': 'Number',
-                'StringValue': str(lon),
-            },
-        },
-        MessageBody='Data'
-    )
+            MessageBody='Data'
+        )
 
-    return response
+    if functions.SQS_OVERPASS == queue:
+        sqs.send_message(
+            QueueUrl=queues['overpass_workload'],
+            MessageAttributes={
+                'osm_id': {
+                    'DataType': 'String',
+                    'StringValue': id,
+                },
+                'osm_type': {
+                    'DataType': 'String',
+                    'StringValue': type,
+                },
+                'type': {
+                    'DataType': 'String',
+                    'StringValue': key,
+                },
+            },
+            MessageBody='Data'
+        )
 
 
-def receive_message():
+def process_wikidata():
     response = sqs.receive_message(
-        QueueUrl=queue_url,
+        QueueUrl=queues['wikidata_claims'],
         AttributeNames=[
             'SentTimestamp'
         ],
@@ -101,7 +125,39 @@ def receive_message():
           f'{item.labels.get("en", "Not found")}{Style.RESET_ALL}'
           )
 
-    sqs.delete_message(
-        QueueUrl=queue_url,
-        ReceiptHandle=message['ReceiptHandle']
+    delete_message(functions.SQS_WIKIDATA, message['ReceiptHandle'])
+
+
+def process_overpass():
+    return sqs.receive_message(
+        QueueUrl=queues['overpass_workload'],
+        AttributeNames=[
+            'SentTimestamp'
+        ],
+        MaxNumberOfMessages=1,
+        MessageAttributeNames=[
+            'All'
+        ],
     )
+
+
+def receive_message(queue: str = 'wikidata'):
+    if functions.SQS_WIKIDATA == queue:
+        process_wikidata()
+
+    if functions.SQS_OVERPASS == queue:
+        return process_overpass()
+
+
+def delete_message(queue: str, receipt_handle: str):
+    if functions.SQS_WIKIDATA == queue:
+        sqs.delete_message(
+            QueueUrl=queues['wikidata_claims'],
+            ReceiptHandle=receipt_handle
+        )
+
+    if functions.SQS_OVERPASS == queue:
+        sqs.delete_message(
+            QueueUrl=queues['overpass_workload'],
+            ReceiptHandle=receipt_handle
+        )

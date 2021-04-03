@@ -19,11 +19,6 @@ def wikiparser(station):
     station = pywikibot.ItemPage(repo, station)
     station.get()
 
-    if not station.botMayEdit():
-        print('%s - Bot may not edit' % (item_name(station)))
-
-        return
-
     if 'P137' not in station.claims:
         print('%s - No operator found' % (item_name(station)))
 
