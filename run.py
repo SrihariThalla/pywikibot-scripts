@@ -2,8 +2,7 @@ import os
 
 from PyInquirer import prompt
 
-from boundaries.mandals import Mandals
-from boundaries.wiki_mandals import WikiMandals
+from wiki_citations_archival.citations import Citations
 
 q = {
     'type': 'confirm',
@@ -11,16 +10,14 @@ q = {
     'message': 'Start new work?',
 }
 
-# mandals = Mandals()
-mandals = WikiMandals()
-mandals.process()
+citations = Citations()
 
-# while True:
-    # os.system('clear')
-    #
-    # a = prompt(q)
-    #
-    # if not a['start']:
-    #     break
-    #
-    # mandals.process()
+while True:
+    a = prompt(q)
+
+    if not a['start']:
+        break
+
+    os.system('clear')
+
+    citations.process()

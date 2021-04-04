@@ -7,3 +7,4 @@ PyInquirer==1.0.3
 osmapi==1.3.0
 overpy==0.4
 geopy==2.1.0
+mwparserfromhell==0.6

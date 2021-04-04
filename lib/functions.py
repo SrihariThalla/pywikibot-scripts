@@ -2,13 +2,13 @@ import os
 from os.path import expanduser
 
 import boto3
-import firebase_admin
+# import firebase_admin
 import osmapi
 import overpy
 import pywikibot
 from PyInquirer import prompt
 from colorama import Fore, Style
-from firebase_admin import firestore, credentials
+# from firebase_admin import firestore, credentials
 from geopy import Nominatim
 from pywikibot import pagegenerators as pg
 
@@ -30,17 +30,17 @@ queues = {
 }
 
 
-def firebase_init():
-    cred = credentials.Certificate(os.path.join(expanduser('~'), 'rbs-stations-firebase.json'))
-
-    firebase_admin.initialize_app(cred, {
-        'projectId': 'rbs-stations',
-    })
-
-    db = firestore.client()
-    stations_ref = db.collection('stations')
-
-    return stations_ref
+# def firebase_init():
+#     cred = credentials.Certificate(os.path.join(expanduser('~'), 'rbs-stations-firebase.json'))
+#
+#     firebase_admin.initialize_app(cred, {
+#         'projectId': 'rbs-stations',
+#     })
+#
+#     db = firestore.client()
+#     stations_ref = db.collection('stations')
+#
+#     return stations_ref
 
 
 def prepare_changeset_option(changesets: list):
@@ -79,7 +79,7 @@ def prepare_rbs_option(rbs_results: list):
 
 class Functions:
     def __init__(self):
-        self.firebase = firebase_init()
+        # self.firebase = firebase_init()
         self.wikidata_site = pywikibot.Site("wikidata", "wikidata")
         self.overpassapi = overpy.Overpass()
         self.osmapi = osmapi.OsmApi(
