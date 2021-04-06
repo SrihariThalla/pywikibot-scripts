@@ -1,0 +1,4 @@
+colorama==0.4.4
+PyInquirer==1.0.3
+mwparserfromhell==0.6
+waybackpy==2.4.3

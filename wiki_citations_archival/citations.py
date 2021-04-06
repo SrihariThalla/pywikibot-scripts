@@ -1,5 +1,6 @@
 import re
 from pprint import pprint
+from urllib.parse import unquote, urlparse, urljoin
 
 import mwparserfromhell
 import pywikibot
@@ -9,46 +10,44 @@ from PyInquirer import prompt
 from colorama import Fore, Style
 from mwparserfromhell.nodes import Template
 from pywikibot import Page
-from requests import Response
 from waybackpy.exceptions import WaybackError
-from urllib.parse import unquote, urlparse, urljoin
-from lib.functions import Functions
+
+from template import TemplateData
 
 user_agent = f'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_3)' \
              f' AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.105 Safari/537.36'
 headers = {'user-agent': user_agent, }
 websites_disallowed = [
+    'ac.in',
     'archive.org',
-    'bie.ap.gov.in',
+    'asiamattersforamerica.org',
+    'badmintonindia.org',
+    'blessingsonthenet.com',
     'books.google.com',
-    'censusindia.gov.in',
+    'cdia.asia',
     'cherryfans.com',
-    'cse.ap.gov.in',
+    'cricketarchive.com',
     'downloads.movies.indiatimes.com',
-    'eci.nic.in',
-    'entertainment.oneindia.in',
+    'edu.in',
     'en.climate-data.org',
+    'entertainment.oneindia.in',
     'ficci.in',
     'filmfaremagazine.indiatimes.com',
-    'guntur.cdma.ap.gov.in',
+    'gov.in',
     'gunturdivision.blogspot.in',
     'ibnlive.in.com',
-    'iffi.nic.in',
-    'ipr.ap.nic.in',
-    'irrigationap.cgg.gov.in',
-    'mha.nic.in',
     'nationalconferences.org',
-    'pib.nic.in',
-    'publiclibraries.ap.nic.in',
-    'rmsaap.nic.in',
+    'nic.in',
+    'postnoon.com',
     'swachhsurvekshan2018.org',
     'timesofap.com',
-    'web.archive.org',
-    'www.agmarknet.nic.in',
-    'www.ap.gov.in',
+    'www.aplegislature.org',
     'www.bharatwaves.com',
-    'www.censusindia.gov.in',
-    'www.dtcp.ap.gov.in',
+    'www.census2011.co.in',
+    'www.censusindia.net',
+    'www.cia.gov',
+    'www.dataforcities.org',
+    'www.docstoc.com',
     'www.earlytollywood.com',
     'www.espncricinfo.com',
     'www.fallingrain.com',
@@ -57,21 +56,42 @@ websites_disallowed = [
     'www.humsurfer.com',
     'www.imdb.com',
     'www.indiaglitz.com',
-    'www.judicialpreview.ap.gov.in',
+    'www.ipsos.com',
+    'www.kanakadurgamma.org',
     'www.merinews.com',
+    'www.ourvmc.org',
+    'www.quora.com',
     'www.sakshipost.com',
-    'www.scr.indianrailways.gov.in',
     'www.thetelugufilmnagar.com',
+    'www.travelkhana.com',
+    'www.vikasinstitutionsnunna.org',
     'www.weekendcreations.com',
     'www.yourarticlelibrary.com',
 ]
 websites_disallowed_regex = [
-    'http\:\/\/www\.(the)?hindu\.com\/(thehindu\/fr\/)?\d{4}\/[01]\d\/[0-3][0-9]\/stories\/[0-9]+\.htm',
+    'http\:\/\/www\.(the)?hindu\.com\/(thehindu\/(fr|yw)\/)?\d{4}\/[01]\d\/[0-3][0-9]\/stories\/[0-9]+\.htm',
 ]
 websites_redirected = [
     'articles.timesofindia.indiatimes.com',
 ]
 websites_trusted = [
+    'auto.economictimes.indiatimes.com',
+    'economictimes.indiatimes.com',
+    'indianexpress.com',
+    'techcrunch.com',
+    'theprint.in',
+    'timesofindia.indiatimes.com',
+    'www.business-standard.com',
+    'www.cbsnews.com',
+    'www.deccanchronicle.com',
+    'www.dnaindia.com',
+    'www.hindustantimes.com',
+    'www.ibtimes.co.in',
+    'www.indiatoday.in',
+    'www.livemint.com',
+    'www.newindianexpress.com',
+    'www.news18.com',
+    'www.reuters.com',
     'www.thehansindia.com',
     'www.thehindu.com',
     'www.thehindubusinessline.com',
@@ -112,20 +132,20 @@ def can_edit(article: Page):
     return True
 
 
-def already_set(template: Template):
-    return template.has_param('archive-url') and template.has_param('archive-date') and template.has_param('url-status')
+def already_set(template_data: TemplateData):
+    return (template_data.template.has_param('archive-url')
+            and template_data.template.has_param('archive-date')
+            and template_data.template.has_param('url-status')
+            )
 
 
-def is_trusted_website(template: Template, i: int):
-    url = template.get('url').value.strip()
-    o = urlparse(url)
+def is_trusted_website(template_data: TemplateData, i: int):
+    o = urlparse(template_data.url_finalized())
 
-    trusted = o.netloc in websites_trusted
+    template_data.trusted = o.netloc in websites_trusted and '' == o.query
 
-    if trusted:
+    if template_data.trusted:
         print(f'{i}. {Fore.CYAN}Trusted{Style.RESET_ALL} website')
-
-    return trusted
 
 
 def url_response(url: str, i: int):
@@ -169,68 +189,95 @@ def url_response(url: str, i: int):
         print(new_url)
 
 
-def check_url(template: Template, i: int, response: Response):
-    if response is None:
+def check_url(template_data: TemplateData, i: int):
+    if template_data.response is None:
         return
 
-    if template.get('url').value.strip() == response.url.strip():
+    if template_data.url_finalized() == template_data.response.url.strip():
+        return
+
+    old_url_parsed = urlparse(template_data.url_finalized())
+    new_url_parsed = urlparse(template_data.response.url.strip())
+
+    if (template_data.trusted
+            and 200 == template_data.response.status_code
+            and 'http' == old_url_parsed.scheme
+            and 'https' == new_url_parsed.scheme
+            and old_url_parsed.netloc == new_url_parsed.netloc
+            and old_url_parsed.path == new_url_parsed.path
+            and old_url_parsed.params == new_url_parsed.params
+            and old_url_parsed.query == new_url_parsed.query
+            and old_url_parsed.fragment == new_url_parsed.fragment
+        ):
+
+        template_data.url_changed = template_data.response.url.strip()
+
+        print(f'{i}. {Fore.CYAN}Schema{Style.RESET_ALL} change for trusted website. '
+              f'URL {Fore.GREEN}updated{Style.RESET_ALL}')
+
         return
 
     if not prompt(prompt_bool_question('Should update URL?'))['confirm']:
-        enter_new_url(template, i)
+        template_data.trusted = False
+        enter_new_url(template_data, i)
+
         return
 
-    template.add('url', response.url.strip())
+    template_data.url_changed = template_data.response.url.strip()
+    template_data.trusted = False
 
     print(f'{i}. URL {Fore.GREEN}updated{Style.RESET_ALL}')
 
 
-def check_url_status(template: Template, i: int, response: Response = None):
+# @todo Check for dead URLs
+def check_url_status(template_data: TemplateData, i: int):
     # @todo Should be overrideable
-    if template.has_param('url-status'):
+    if template_data.template.has_param('url-status'):
         return
 
-    if not prompt(prompt_bool_question('Should URL status be added?'))['confirm']:
+    # Short-circuit trusted websites
+    if not template_data.trusted and not prompt(prompt_bool_question('Should URL status be added?'))['confirm']:
         return
 
-    if response is None:
+    if template_data.response is None:
         if not prompt(prompt_bool_question('URL is not checked. Check now? If not URL-status will be skipped'))['confirm']:
             print(f'{i}. URL-status {Fore.RED}skipped{Style.RESET_ALL} as response is not available')
 
             return
 
-        response = url_response(template.get('url').value.strip(), i)
+        template_data.response = url_response(template_data.url_finalized(), i)
 
         # Error while fetching URL
-        if response is None:
+        if template_data.response is None:
             return
 
-    if 200 == response.status_code:
-        template.add('url-status', 'live')
+    if 200 == template_data.response.status_code:
+        template_data.url_status = True
+
         print(f'{i}. URL status is {Fore.GREEN}set{Style.RESET_ALL}')
 
-        url = template.get('url').value.strip()
-        if response.url != url:
-            check_url(template, i, response)
+        if template_data.response.url.strip() != template_data.url_finalized():
+            check_url(template_data, i)
 
         return
 
-    print(response.status_code)
-    pprint(response.headers)
-    pprint(response.url)
+    print(template_data.response.status_code)
+    pprint(template_data.response.headers)
+    pprint(template_data.response.url.strip())
 
-    answer_override = prompt(prompt_bool_question('Should url-status override to live?'))
+    answer_override = template_data.trusted or prompt(prompt_bool_question('Should url-status override to live?'))['confirm']
 
-    if answer_override['confirm']:
-        template.add('url-status', 'live')
+    if answer_override:
+        template_data.url_status = True
+
         print(f'{i}. URL status is {Fore.GREEN}set{Style.RESET_ALL}')
     else:
         print(f'{i}. URL status is {Fore.RED}not set{Style.RESET_ALL}')
 
 
-def enter_new_url(template: Template, i: int):
+def enter_new_url(template_data: TemplateData, i: int):
     if not prompt(prompt_bool_question('Enter new URL manually?'))['confirm']:
-        return None
+        return
 
     answer_url = prompt(prompt_input_question('Enter the new 200-OK URL:'))
 
@@ -239,32 +286,31 @@ def enter_new_url(template: Template, i: int):
     if response is None:
         print(f'{i}. New URL {Fore.RED}not added{Style.RESET_ALL}')
 
-        return None
+        return
 
-    template.add('url', answer_url['input'])
+    template_data.url_changed = answer_url['input']
+    template_data.response = response
 
     print(f'{i}. New URL added {Fore.GREEN}manually{Style.RESET_ALL}')
 
-    return response
 
-
-def check_redirect(template: Template, i: int):
-    o = urlparse(template.get('url').value.strip())
+def check_redirect(template_data: TemplateData):
+    o = urlparse(template_data.url_finalized())
 
     return o.netloc in websites_redirected
 
 
-def archive_url(template: Template, i: int):
-    if template.has_param('archive-url'):
+# @todo Check if archive URL has the same origin URL
+def archive_url(template_data: TemplateData, i: int):
+    if template_data.template.has_param('archive-url'):
         print(f'{i}. {Fore.CYAN}Already set{Style.RESET_ALL}')
 
         return
 
-    if not prompt(prompt_bool_question('Should process archiving this URL?'))['confirm']:
+    if not template_data.trusted and not prompt(prompt_bool_question('Should process archiving this URL?'))['confirm']:
         return
 
-    url = template.get('url').value.strip()
-    wayback = waybackpy.Url(url, user_agent)
+    wayback = waybackpy.Url(template_data.url_finalized(), user_agent)
 
     try:
         archive = wayback.newest()
@@ -283,27 +329,48 @@ def archive_url(template: Template, i: int):
 
             return
 
-    print(archive.archive_url)
+    archive_date = archive.timestamp.strftime('%-d %B %Y')
 
+    print(f'  {archive_date}')
+    print(f'  {archive.archive_url}')
+
+    regex_archive_url = 'https:\/\/web\.archive\.org\/web\/[0-9]{14}\/(.*)'
+    o = re.search(regex_archive_url, archive.archive_url)
+
+    archive_url_match = len(o.groups()) == 1 and o.groups()[0] == template_data.url_finalized()
+
+    if archive_url_match:
+        if template_data.trusted:
+            template_data.archive_url = archive.archive_url
+            template_data.archive_date = archive_date
+
+            print(f'{i}. {Fore.GREEN}Archive URL added{Style.RESET_ALL}')
+
+            return
+    else:
+        print(f'{i}. Archive URL {Fore.RED}does not{Style.RESET_ALL} match with cited URL')
+
+    # @todo Manual input of archive URL
     if not prompt(prompt_bool_question('Should this Archive URL be added to the Citation?'))['confirm']:
         print(f'{i}. {Fore.RED}Not setting archive url{Style.RESET_ALL}')
 
         return
 
-    template.add('archive-url', archive.archive_url)
-    template.add('archive-date', archive.timestamp.strftime("%-d %B %Y"))
+    template_data.archive_url = archive.archive_url
+    template_data.archive_date = archive_date
 
     print(f'{i}. {Fore.GREEN}Archive URL added{Style.RESET_ALL}')
 
 
 class Citations:
     def __init__(self):
-        self.functions = Functions()
         self.wikipedia = pywikibot.Site('en', 'wikipedia')
 
+        self.regex_archive_url = 'https:\/\/web\.archive\.org\/web\/[0-9]{14}\/(.*)'
         self.regex = []
         for rule in websites_disallowed_regex:
             self.regex.append(re.compile(rule))
+
 
     def process(self):
         answer_input_article = prompt(prompt_input_question('Enter the name of the EN article (namespace=0):'))
@@ -336,42 +403,59 @@ class Citations:
 
                 continue
 
+            template_data = TemplateData(
+                url_cited=template.get('url').value.strip(),
+                template=template
+            )
+
             # URL-status, Archive-URL, Archive-date already set
-            if already_set(template):
+            if already_set(template_data):
                 print(f'{i}. {Fore.CYAN}Already set{Style.RESET_ALL}')
 
                 continue
 
             print()
-            print(f'{i}. {template.name}')
-            print(template.params)
-            print(template.get('url').value.strip())
+            print(f'{i}. {template_data.template.name}')
+            print(template_data.template.params)
+            print(template_data.url_finalized())
 
-            if not self.check_url_allowed(template):
+            if not self.check_url_allowed(template_data):
                 print(f'{i}. URL is {Fore.RED}not allowed{Style.RESET_ALL}')
+                print()
 
                 continue
 
-            if check_redirect(template, i):
-                enter_new_url(template, i)
+            if check_redirect(template_data):
+                enter_new_url(template_data, i)
+
+            is_trusted_website(template_data, i)
 
             # URL redirect verification
             # @todo Check if URL has parameters
-            if is_trusted_website(template, i) or prompt(prompt_bool_question('Should the URL be checked?'))['confirm']:
-                response = url_response(template.get('url').value.strip(), i)
+            if template_data.trusted or prompt(prompt_bool_question('Should the URL be checked?'))['confirm']:
+                template_data.response = url_response(template_data.url_finalized(), i)
             else:
                 # Mandatory after entering new URL manually
-                response = enter_new_url(template, i)
+                enter_new_url(template_data, i)
 
             # URL
-            check_url(template, i, response)
+            check_url(template_data, i)
 
             # URL-status
-            check_url_status(template, i, response)
+            check_url_status(template_data, i)
 
             # Archive
             # @todo Override option to input manually
-            archive_url(template, i)
+            archive_url(template_data, i)
+
+            template.add('url', template_data.url_finalized())
+
+            if template_data.url_status is not None:
+                template.add('url-status', 'live')
+
+            if template_data.archive_url is not None:
+                template_data.template.add('archive-url', template_data.archive_url)
+                template_data.template.add('archive-date', template_data.archive_date)
 
             pprint(template.params)
             print()
@@ -390,12 +474,23 @@ class Citations:
 
         print()
 
-    def check_url_allowed(self, template: Template):
-        url = template.get('url').value
-        o = urlparse(str(url))
+    def check_url_allowed(self, template_data: TemplateData):
+        url = template_data.url_finalized()
+        o = urlparse(url)
 
         for rule in self.regex:
-            if rule.match(str(url)) is not None:
+            if rule.match(url) is not None:
                 return False
 
-        return o.netloc not in websites_disallowed
+        if o.netloc in websites_disallowed:
+            return False
+
+        domain_parts = o.netloc.split('.')
+
+        while len(domain_parts):
+            domain_parts.pop(0)
+
+            if '.'.join(domain_parts) in websites_disallowed:
+                return False
+
+        return True
