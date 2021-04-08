@@ -8,7 +8,6 @@ import requests
 import waybackpy
 from PyInquirer import prompt
 from colorama import Fore, Style
-from mwparserfromhell.nodes import Template
 from pywikibot import Page
 from waybackpy.exceptions import WaybackError
 
@@ -69,7 +68,7 @@ websites_disallowed = [
     'www.yourarticlelibrary.com',
 ]
 websites_disallowed_regex = [
-    'http\:\/\/www\.(the)?hindu\.com\/(thehindu\/(fr|yw)\/)?\d{4}\/[01]\d\/[0-3][0-9]\/stories\/[0-9]+\.htm',
+    'http\:\/\/www\.(the)?hindu\.com\/(thehindu\/(fr|yw|mp|pp|mag)\/)?\d{4}\/[01]\d\/[0-3][0-9]\/stories\/[0-9]+\.htm',
 ]
 websites_redirected = [
     'articles.timesofindia.indiatimes.com',
@@ -84,11 +83,16 @@ websites_trusted = [
     'www.business-standard.com',
     'www.cbsnews.com',
     'www.deccanchronicle.com',
+    'www.deccanherald.com',
     'www.dnaindia.com',
+    'www.financialexpress.com',
+    'www.firstpost.com',
     'www.hindustantimes.com',
     'www.ibtimes.co.in',
     'www.indiatoday.in',
+    'www.indiatvnews.com',
     'www.livemint.com',
+    'www.ndtv.com',
     'www.newindianexpress.com',
     'www.news18.com',
     'www.reuters.com',
@@ -229,7 +233,6 @@ def check_url(template_data: TemplateData, i: int):
     print(f'{i}. URL {Fore.GREEN}updated{Style.RESET_ALL}')
 
 
-# @todo Check for dead URLs
 def check_url_status(template_data: TemplateData, i: int):
     # @todo Should be overrideable
     if template_data.template.has_param('url-status'):
@@ -265,6 +268,13 @@ def check_url_status(template_data: TemplateData, i: int):
     pprint(template_data.response.headers)
     pprint(template_data.response.url.strip())
 
+    if template_data.response.status_code in [404, 500]:
+        if prompt(prompt_bool_question('Should URL status be updated to dead?')):
+            template_data.url_status = False
+            print(f'{i}. URL returned {Fore.RED}404{Style.RESET_ALL}. Status updated to {Fore.GREEN}dead{Style.RESET_ALL}')
+
+            return
+
     answer_override = template_data.trusted or prompt(prompt_bool_question('Should url-status override to live?'))['confirm']
 
     if answer_override:
@@ -294,13 +304,6 @@ def enter_new_url(template_data: TemplateData, i: int):
     print(f'{i}. New URL added {Fore.GREEN}manually{Style.RESET_ALL}')
 
 
-def check_redirect(template_data: TemplateData):
-    o = urlparse(template_data.url_finalized())
-
-    return o.netloc in websites_redirected
-
-
-# @todo Check if archive URL has the same origin URL
 def archive_url(template_data: TemplateData, i: int):
     if template_data.template.has_param('archive-url'):
         print(f'{i}. {Fore.CYAN}Already set{Style.RESET_ALL}')
@@ -419,13 +422,13 @@ class Citations:
             print(template_data.template.params)
             print(template_data.url_finalized())
 
-            if not self.check_url_allowed(template_data):
+            if not self.check_url_allowed(template_data, i):
                 print(f'{i}. URL is {Fore.RED}not allowed{Style.RESET_ALL}')
                 print()
 
                 continue
 
-            if check_redirect(template_data):
+            if template_data.should_enter_url():
                 enter_new_url(template_data, i)
 
             is_trusted_website(template_data, i)
@@ -450,8 +453,10 @@ class Citations:
 
             template.add('url', template_data.url_finalized())
 
-            if template_data.url_status is not None:
+            if template_data.url_status is True:
                 template.add('url-status', 'live')
+            elif template_data.url_status is False:
+                template.add('url-status', 'dead')
 
             if template_data.archive_url is not None:
                 template_data.template.add('archive-url', template_data.archive_url)
@@ -474,7 +479,7 @@ class Citations:
 
         print()
 
-    def check_url_allowed(self, template_data: TemplateData):
+    def check_url_allowed(self, template_data: TemplateData, i: int):
         url = template_data.url_finalized()
         o = urlparse(url)
 
@@ -492,5 +497,16 @@ class Citations:
 
             if '.'.join(domain_parts) in websites_disallowed:
                 return False
+
+        template_data.website_redirected = o.netloc in websites_redirected
+
+        if '' != o.query:
+            template_data.url_has_query = True
+            print(f'{i}. URL has {Fore.RED}query{Style.RESET_ALL}')
+
+        if o.path.endswith('.pdf'):
+            print(f'{i}. Link is {Fore.CYAN}PDF{Style.RESET_ALL}')
+
+            return True
 
         return True
